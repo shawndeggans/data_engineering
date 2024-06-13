@@ -163,12 +163,14 @@ data_frame.select(col("*"), col("ID").isNull().alias("null")).show()
 # COMMAND ----------
 
 # Assuming data_frame_2 is a DataFrame already defined
+from pyspark.sql.functions import when, col
+
 data_frame_2 = data_frame_2.withColumn(
     "cleaned_div", 
     when(col("div") == "", None).otherwise(col("div"))
 )
 
-display(data_frame_2)
+data_frame_2.show(truncate=False)
 
 # COMMAND ----------
 
@@ -214,3 +216,175 @@ data_frame_3.select(col("name"),
             ).otherwise("no").alias('outlier')
         ]
     ).show()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Casting columns
+# MAGIC
+# MAGIC Data columns can sometimes be set to the wrong data type when dealing with raw tables. This type of error ideally should be fixed as far upstream as possible.
+
+# COMMAND ----------
+
+data_frame_4 = spark.createDataFrame(data = [("Brian", "Engr", "1"),
+                                             ("Nechama", "Engr", "1"),
+                                             ("Naava", "Engr", "3"),
+                                             ("Miri", "Engr", "5"),
+                                             ("Brian", "Engr", "7"),
+                                             ("Miri", "Engr", "9"),
+                                             ], schema = ["name", "div", "ID"])
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC We will first look at the schema of the DataFrame to see what the data types are. We will notice that the ID column is string, not int:
+
+# COMMAND ----------
+
+data_frame_4.schema
+StructType([StructField('name', StringType(), True), StructField('div', StringType(), True), StructField('ID', StringType(), True)])
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Here, we cast the ID column from string to int:
+
+# COMMAND ----------
+
+data_frame_4.select(col("*"),col("ID").cast('int').alias("cleaned_ID")).show()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Fixing column names
+# MAGIC It’s very common to have columns come from data sources with odd naming conventions. When passing data between teams, one team often has norms that won’t match another team’s coding practices.
+# MAGIC
+# MAGIC Here we are using the alias method on the column object to rename the name column:
+
+# COMMAND ----------
+
+data_frame_4.select(col("ID"),col("name").alias("user_name")).show()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Complex data types
+# MAGIC We are now going to set up DataFrames for these examples. Keep in mind that Spark always has a strongly enforced schema on all columns, so every row has the same schema, no matter whether the dataframe is structured or semi-structured when working with DataFrames:
+
+# COMMAND ----------
+
+schema_5 = StructType([
+        StructField('user', StructType([
+             StructField('name', StringType(), True),
+             StructField('age', IntegerType(), True),
+             StructField('id', IntegerType(), True)
+             ])),
+         StructField('codes', ArrayType(StringType()), True),
+         StructField('location_id', IntegerType(), True),
+         ])
+data_5 =  [(("Bruce Lee", 21, 1), [5,6,7,8],9)]
+data_frame_5 = spark.createDataFrame(data=data_5,schema=schema_5)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Now we will select the name element of the user array:
+
+# COMMAND ----------
+
+data_frame_5.select("user.name").show()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC In the codes column, we have an array of values. We can access them manually using the bracket notation:
+
+# COMMAND ----------
+
+data_frame_5.select(col("codes")[0]).show()
+
+# COMMAND ----------
+
+data_frame_6 = spark.createDataFrame([([[9, 7], [56, 12], [23,43]],), ([ [400, 500]],)],["random_stuff"])
+data_frame_6.show(truncate=False)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Another very useful function is the explode function. It will take a column with an array and transform the whole DataFrame by extracting the array into several unique rows of the DataFrame:
+
+# COMMAND ----------
+
+data_frame_5.select(col("location_id"), explode("codes").alias("new")).show()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Here is another example of using the explode function, this time on a hash structure:
+
+# COMMAND ----------
+
+data_frame_7 = spark.createDataFrame([ ({"apple": "red"}, 1),  ({"orange": "orange"}, 2)], ["fruit", "id"])
+data_frame_7.show(truncate=False)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Notice that now we have key and value columns:
+
+# COMMAND ----------
+
+data_frame_7.select(col("id"), explode("fruit")).show()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Lastly, we will create a complex semi-structured DataFrame. We are using the create_map and array functions to create this structure:
+
+# COMMAND ----------
+
+test = data_frame_4.select(col("id"), create_map("id", struct(["name","div"])).alias("complex_map"), array(["name","div"]).alias("complex_array"))
+test.show(truncate=False)
+
+# COMMAND ----------
+
+from pyspark.sql.types import StructType, StructField, StringType, MapType, ArrayType
+
+test.schema
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## diagrams
+# MAGIC The diagrams library is very useful for creating solution diagrams. A solution diagram is often a broad picture of the architecture and key components. It can be organized in a way that explains key interactions.
+# MAGIC
+# MAGIC Here, we are creating a small example document using the diagrams package:
+
+# COMMAND ----------
+
+# MAGIC %sh apt-get update; apt-get -f -y install graphviz
+
+# COMMAND ----------
+
+# MAGIC %pip install diagrams
+
+# COMMAND ----------
+
+from diagrams import Cluster, Diagram
+from diagrams.aws.analytics import Quicksight, EMR
+with Diagram("Data Platform", show=False):
+    with Cluster("Dev"):
+        dashboards = Quicksight("Tableau")
+        spark_clusters = [EMR("Notebook_cluster"), EMR("Jobs_cluster")]
+        dashboards >> spark_clusters
+
+# COMMAND ----------
+
+from diagrams import Cluster, Diagram
+from diagrams import Diagram, Cluster
+from diagrams.custom import Custom
+with Diagram("Dataplatform", show=False, filename="dataplatform_custom"):
+    with Cluster("Prod - VPC"):
+        compute = [Custom("Tiny", "./db_cluster.png") , Custom("Med", "./db_cluster.png")]
+        dashboards = Custom("Tiny", "./tabl.png")
+        dashboards << compute
